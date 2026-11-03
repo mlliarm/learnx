@@ -125,8 +125,11 @@ Query exercises are ES|QL over ECS-shaped security events, run against a
 single-node Elasticsearch 9.4 in Docker with security disabled. The container
 (`learnx-elasticsearch`) takes about 30s to start, so it is left running for
 later sessions; stop it with `docker rm -f learnx-elasticsearch`. Set
-`LEARNX_ES_URL` to use a disposable cluster of your own instead; it is wiped
-before every exercise. Exercise setup uses Kibana Dev Tools console syntax:
+`LEARNX_ES_URL` to use a disposable cluster of your own instead, with security
+disabled and `action.destructive_requires_name: false`. learnx deletes every
+index and data stream on it before each exercise, so it refuses a cluster that
+already holds any unless you also set `LEARNX_ES_WIPE=1`. Exercise setup uses
+Kibana Dev Tools console syntax:
 
 ```console
 PUT auth-events

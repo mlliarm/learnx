@@ -9,7 +9,9 @@
 # it, and no LLM is called. The tapes answer the fixture's exercises, so they
 # need updating if the fixture changes. Exercises run against the
 # learnx-elasticsearch sandbox container (start it once with
-# `learnx practice elastic-security`), reached over host networking.
+# `learnx practice elastic-security`), reached over host networking; it is
+# learnx's own, so LEARNX_ES_WIPE allows wiping whatever an older version
+# left in it.
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -32,6 +34,7 @@ for tape in "${tapes[@]}"; do
     -e PATH="/demo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin" \
     -e LEARNX_HOME=/demo/home \
     -e LEARNX_ES_URL="http://127.0.0.1:$es_port" \
+    -e LEARNX_ES_WIPE=1 \
     -e COLORTERM=truecolor \
     --user "$(id -u):$(id -g)" -e HOME=/tmp \
     "$VHS_IMAGE" "$tape"
