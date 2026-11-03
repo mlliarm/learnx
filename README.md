@@ -6,8 +6,8 @@ technology's own public documentation.
 `learnx` connects to a documentation source — ideally a public docs
 [MCP](https://modelcontextprotocol.io) server that needs no account — and uses
 it to build a curriculum, write lessons grounded in (and citing) the real docs,
-and check your exercises against a live sandbox. Elastic Security is supported
-so far.
+and check your exercises against a live sandbox. Elastic Security and
+Elasticsearch are supported so far.
 
 > **Status:** early. Docs access, syllabus and lesson generation, sandboxed
 > exercise grading, review and the TUI work; LLM features were verified live

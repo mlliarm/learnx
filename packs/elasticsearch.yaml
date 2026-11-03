@@ -1,0 +1,31 @@
+name: elasticsearch
+title: Elasticsearch
+description: Storing, mapping, searching and analyzing data with Elasticsearch and ES|QL.
+docs:
+  mcp:
+    endpoint: https://www.elastic.co/docs/_mcp
+    search_tool: search_docs
+    base_url: https://www.elastic.co
+  llms_txt: https://www.elastic.co/docs/llms.txt
+tutor:
+  exercise_env: >-
+    Query exercises run ES|QL against a disposable single-node Elasticsearch
+    9.4 cluster: security disabled, no Kibana, no machine learning, no
+    inference endpoints, no sample data and no internet. The cluster is wiped
+    before every run. setup_sql holds Kibana Dev Tools console requests that
+    create and fill indices: "PUT products" followed by a JSON body with
+    explicit mappings (and settings, such as "index.mode": "lookup" for an
+    index used by LOOKUP JOIN), then "POST products/_bulk" followed by NDJSON
+    lines ({"index": {}} and then the document). Setup may also create index
+    templates and data streams, but not ingest pipelines, component templates
+    or enrich policies, which the sandbox doesn't clean up. Use plain index
+    names such as products or web-logs; avoid names matching logs-*-*,
+    metrics-*-* or traces-*-*, which built-in templates turn into data
+    streams. solution_sql holds one ES|QL query (FROM ... | WHERE ... |
+    STATS ... | SORT ...); add SORT when row order matters. Query DSL
+    (_search requests), aggregations in _search, KQL and Lucene queries
+    can't be executed here: teach them in the lesson body and check them
+    with multiple_choice or short_answer exercises.
+sandbox:
+  driver: elasticsearch
+  image: docker.elastic.co/elasticsearch/elasticsearch:9.4.0
