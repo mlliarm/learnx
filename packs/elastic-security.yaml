@@ -1,0 +1,30 @@
+name: elastic-security
+title: Elastic Security
+description: Threat detection, hunting and investigation with Elasticsearch and Elastic Security.
+docs:
+  mcp:
+    endpoint: https://www.elastic.co/docs/_mcp
+    search_tool: search_docs
+    base_url: https://www.elastic.co
+  llms_txt: https://www.elastic.co/docs/llms.txt
+tutor:
+  exercise_env: >-
+    Query exercises run ES|QL against a disposable single-node Elasticsearch
+    9.4 cluster: security disabled, no Kibana, no Elastic Agent or
+    integrations, no machine learning, no sample data and no internet.
+    setup_sql holds Kibana Dev Tools console requests that create and fill
+    indices: "PUT auth-events" followed by a JSON body with explicit mappings,
+    then "POST auth-events/_bulk" followed by NDJSON lines ({"index": {}} and
+    then the document). Use ECS field names (@timestamp, event.category,
+    event.action, event.outcome, user.name, source.ip, host.name,
+    process.name, process.parent.name) and map identifiers as keyword,
+    addresses as ip and @timestamp as date. Use plain index names such as
+    auth-events; avoid names matching logs-*-*, metrics-*-* or traces-*-*,
+    which built-in templates turn into data streams. solution_sql holds one
+    ES|QL query (FROM ... | WHERE ... | STATS ... | SORT ...); add SORT when
+    row order matters. EQL, KQL, Lucene queries and detection rules can't be
+    executed here: teach them in the lesson body and check them with
+    multiple_choice or short_answer exercises.
+sandbox:
+  driver: elasticsearch
+  image: docker.elastic.co/elasticsearch/elasticsearch:9.4.0

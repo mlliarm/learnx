@@ -1,0 +1,42 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+
+      - name: gofmt
+        run: |
+          unformatted="$(gofmt -l .)"
+          if [ -n "$unformatted" ]; then
+            echo "Run gofmt on:"; echo "$unformatted"; exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: Build
+        run: go build -o bin/learnx ./cmd/learnx
+
+      # The sandbox tests run every pack's real sandbox (Elasticsearch) under
+      # Docker, which the runner has.
+      - name: Pull the sandbox images
+        run: |
+          sed -n 's/^ *image: *//p' packs/*.yaml | xargs -n1 docker pull -q
+
+      - name: Test
+        run: go test -race ./...

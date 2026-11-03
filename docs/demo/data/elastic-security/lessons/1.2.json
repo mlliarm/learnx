@@ -1,0 +1,96 @@
+{
+  "id": "1.2",
+  "model": "openai/gpt-6-luna",
+  "title": "Check your security data in Discover",
+  "body": "Discover helps you answer a basic but important hunting question: **is the data I expect actually present in the source and time range I am looking at?** An empty table is not proof that the source sent no events. You might have selected the wrong data view, excluded the source, or chosen a time range that misses the events.\n\n### Select the source and time range\n\n1. Open **Discover** in Kibana.\n2. Select a **data view** that includes the index or data stream you want to check. A data view can point to one or more indices, data streams, or aliases. Integrations sometimes create data views for you; you can also create one for your own data.\n3. Set a time range that covers when the events occurred. Discover applies the time filter using the data view’s default time field, commonly `@timestamp`. If you are unsure when data arrived, widen the range before concluding it is missing.\n4. Check whether documents appear in the results table. The field list and chart can also help you see what data is available.\n\nDiscover’s data view and time-range controls determine which documents you see. For a custom index, make sure the selected data view includes that index. [Explore fields and data with Discover](https://www.elastic.co/docs/explore-analyze/discover/discover-get-started) · [Ingest data to Elastic Security](https://www.elastic.co/docs/solutions/security/get-started/ingest-data-to-elastic-security)\n\n### Filter to the chosen source\n\nUse a source-specific filter to avoid confusing “no events from this source” with “no events at all.” In Discover’s default search mode, the query bar accepts KQL. For example, to focus on events from the Okta system integration, enter:\n\n```kql\ndata_stream.dataset : \"okta.system\"\n```\n\nFor data sent to a custom index, filter by its index name instead. For example:\n\n```kql\n_index : \"auth-events\"\n```\n\nThe ingestion documentation also shows filtering integration data by `data_stream.dataset` and other shipped data by `_index`. Use the field that matches how your source is ingested; a custom source might not have a `data_stream.dataset` value. [Verify that your data reaches Elastic Security](https://www.elastic.co/docs/solutions/security/get-started/ingest-data-to-elastic-security)\n\nTo narrow authentication events to failures, you can add another KQL condition:\n\n```kql\nevent.category : \"authentication\" and event.outcome : \"failure\"\n```\n\nRun the search and inspect the matching rows. If no documents appear, first check the selected data view and widen the time range. Then confirm that the source filter matches the source’s actual index or dataset.\n\n### Inspect an event and its fields\n\nIn the results table, add fields you want to compare as columns. In the field list, search for a field and select its **add** control. To see more of one result, open that document’s details and review its field names and values. For an authentication event, start with:\n\n| Field | What it helps you establish |\n| --- | --- |\n| `@timestamp` | When the event occurred, which helps place it in a timeline. |\n| `event.category` | The broad kind of event. For example, Elastic Security uses `authentication` for host authentication data. |\n| `event.type` | A standardized event type that adds detail within the category. Read it together with the other event fields. |\n| `host.name` | The host associated with the event. Elastic Security uses this ECS field to identify hosts. |\n| `user.name` | The user associated with the event, when the source provides it. |\n\nFor authentication data, `event.outcome` can also distinguish `success` from `failure`. `event.action` may give a source-specific action name. These values add context; do not infer details that the event does not contain. [Elastic Security ECS field reference](https://www.elastic.co/docs/reference/security/fields-and-object-schemas/siem-field-reference)\n\nFor example, if a document shows `event.category: authentication`, `event.outcome: failure`, `host.name: ws-17`, and `user.name: avery`, you can report a failed authentication event associated with user `avery` and host `ws-17` at the document’s `@timestamp`. The record alone does not establish why the attempt failed or whether it was malicious.\n\n### Why integrations and ECS normalization matter\n\nAn integration is a way to collect data from a source; many integrations also map the collected events to the **Elastic Common Schema (ECS)**. ECS gives common concepts consistent field names—for example, a host is represented by `host.name` and an event’s time by `@timestamp`. When different sources use the same ECS fields, security rules, dashboards, and investigations can work across those sources without needing a different field name for each product.\n\nNormalization does not guarantee that every source supplies every useful field. Elastic Security requires core ECS fields for event data, and specific analyses rely on additional fields. For example, its authentication data view relies on `event.category` and `event.outcome`; `user.name` may provide additional context. If you send data with a custom collector, map the source fields to ECS where possible and check that the values are populated correctly. Detection rules search for events that match their criteria, so missing or incorrectly mapped fields can prevent expected matches. [Ingest data to Elastic Security](https://www.elastic.co/docs/solutions/security/get-started/ingest-data-to-elastic-security) · [Elastic Security ECS field reference](https://www.elastic.co/docs/reference/security/fields-and-object-schemas/siem-field-reference) · [Get started detecting with SIEM](https://www.elastic.co/docs/solutions/security/get-started/get-started-detect-with-siem)\n\nIf events appear in Discover but not on Elastic Security pages, check whether the data view used by Elastic Security includes the event index. A custom index may need to be added to that data view. [Ingest data to Elastic Security](https://www.elastic.co/docs/solutions/security/get-started/ingest-data-to-elastic-security)\n\n**Recap:** select a data view that includes the source, choose a time range that includes the events, and filter for the source before deciding data is absent. Inspect `@timestamp`, `event.category`, `event.type`, `host.name`, and `user.name` to understand what a record says. Integrations and ECS normalization give security tools consistent fields to work with—but the needed fields must still be present and correctly mapped.",
+  "exercises": [
+    {
+      "kind": "multiple_choice",
+      "prompt": "You expect authentication events from a source, but Discover shows no documents. What is the best first check?",
+      "setup_sql": "",
+      "solution_sql": "",
+      "choices": [
+        "Check that the selected data view includes the source, confirm the source filter, and widen the time range.",
+        "Install detection rules; they create the source events that Discover displays.",
+        "Assume the source is healthy because an empty table means there are no events.",
+        "Change `event.category` to `event.action`; the time range and data view do not affect Discover results."
+      ],
+      "answer": "Check that the selected data view includes the source, confirm the source filter, and widen the time range.",
+      "explanation": "Discover only displays documents matched by the selected data view, query, and time range. Check those before concluding the source has no events.",
+      "hints": [
+        "An empty result can come from the search context, not just from missing ingestion.",
+        "Check both which indices are included and which timestamps are allowed.",
+        "Review the data view, source filter, and time picker."
+      ]
+    },
+    {
+      "kind": "query",
+      "prompt": "Use ES|QL to count authentication events by `host.name` and `event.outcome`. Sort the results by host and then outcome. The non-authentication process event in the setup should not appear in your counts.",
+      "setup_sql": "PUT auth-events\n{\n  \"mappings\": {\n    \"properties\": {\n      \"@timestamp\": {\"type\": \"date\"},\n      \"event\": {\n        \"properties\": {\n          \"category\": {\"type\": \"keyword\"},\n          \"action\": {\"type\": \"keyword\"},\n          \"outcome\": {\"type\": \"keyword\"},\n          \"type\": {\"type\": \"keyword\"}\n        }\n      },\n      \"user\": {\"properties\": {\"name\": {\"type\": \"keyword\"}}},\n      \"source\": {\"properties\": {\"ip\": {\"type\": \"ip\"}}},\n      \"host\": {\"properties\": {\"name\": {\"type\": \"keyword\"}}},\n      \"process\": {\n        \"properties\": {\n          \"name\": {\"type\": \"keyword\"},\n          \"parent\": {\"properties\": {\"name\": {\"type\": \"keyword\"}}}\n        }\n      }\n    }\n  }\n}\nPOST auth-events/_bulk\n{\"index\": {}}\n{\"@timestamp\": \"2025-02-10T11:00:00Z\", \"event\": {\"category\": \"authentication\", \"action\": \"user_login\", \"outcome\": \"failure\", \"type\": \"start\"}, \"user\": {\"name\": \"alice\"}, \"source\": {\"ip\": \"192.0.2.10\"}, \"host\": {\"name\": \"workstation-7\"}}\n{\"index\": {}}\n{\"@timestamp\": \"2025-02-10T11:05:00Z\", \"event\": {\"category\": \"authentication\", \"action\": \"user_login\", \"outcome\": \"success\", \"type\": \"start\"}, \"user\": {\"name\": \"alice\"}, \"source\": {\"ip\": \"192.0.2.10\"}, \"host\": {\"name\": \"workstation-7\"}}\n{\"index\": {}}\n{\"@timestamp\": \"2025-02-10T11:07:00Z\", \"event\": {\"category\": \"authentication\", \"action\": \"user_login\", \"outcome\": \"failure\", \"type\": \"start\"}, \"user\": {\"name\": \"bob\"}, \"source\": {\"ip\": \"198.51.100.22\"}, \"host\": {\"name\": \"server-2\"}}\n{\"index\": {}}\n{\"@timestamp\": \"2025-02-10T12:10:00Z\", \"event\": {\"category\": \"authentication\", \"action\": \"user_login\", \"outcome\": \"failure\", \"type\": \"start\"}, \"user\": {\"name\": \"alice\"}, \"source\": {\"ip\": \"192.0.2.10\"}, \"host\": {\"name\": \"workstation-7\"}}\n{\"index\": {}}\n{\"@timestamp\": \"2025-02-10T12:15:00Z\", \"event\": {\"category\": \"process\", \"action\": \"process_start\", \"outcome\": \"success\", \"type\": \"start\"}, \"host\": {\"name\": \"workstation-7\"}, \"process\": {\"name\": \"bash\", \"parent\": {\"name\": \"sshd\"}}}",
+      "solution_sql": "FROM auth-events\n| WHERE event.category == \"authentication\"\n| STATS event_count = COUNT(*) BY host.name, event.outcome\n| SORT host.name, event.outcome",
+      "choices": [],
+      "answer": "",
+      "explanation": "Filter to the authentication category before aggregating. `STATS` counts rows for each host-and-outcome group, and `SORT` makes the result order explicit.",
+      "hints": [
+        "First narrow the rows to the event category you want to verify.",
+        "Use an aggregation grouped by both host and outcome.",
+        "Use `WHERE`, then `STATS COUNT(*) BY ...`, followed by `SORT` on the grouping fields."
+      ]
+    },
+    {
+      "kind": "short_answer",
+      "prompt": "A Discover document has `@timestamp: 2025-02-10T11:00:00Z`, `event.category: authentication`, `event.type: start`, `event.outcome: failure`, `host.name: ws-17`, and `user.name: avery`. State what you can conclude from these fields, and explain the difference between `event.category` and `event.type`.",
+      "setup_sql": "",
+      "solution_sql": "",
+      "choices": [],
+      "answer": "The record represents a failed authentication event at the listed timestamp, associated with user avery and host ws-17. `event.category` gives the broad event class (authentication); `event.type` provides a more specific standardized type within that class. These fields alone do not establish the cause of the failure or prove malicious intent.",
+      "explanation": "The timestamp, category, outcome, host, and user provide event context. Category is the broad classification; type adds standardized detail. Avoid inferring facts the document does not show.",
+      "hints": [
+        "Separate the event’s time and entities from its classification fields.",
+        "Read `event.category` as the broad group and `event.type` as added type detail.",
+        "Use `event.outcome` to describe the result, and avoid claiming a cause that is not in the record."
+      ]
+    },
+    {
+      "kind": "multiple_choice",
+      "prompt": "Why does mapping events from different sources to ECS field names help security detection and investigation?",
+      "setup_sql": "",
+      "solution_sql": "",
+      "choices": [
+        "It gives common concepts consistent field names, allowing security features to use the same field expectations across sources when the relevant fields are present.",
+        "It guarantees every integration collects every possible security field and every rule detects every threat.",
+        "It converts all events into alerts, so analysts do not need source events.",
+        "It makes the data view and time range irrelevant."
+      ],
+      "answer": "It gives common concepts consistent field names, allowing security features to use the same field expectations across sources when the relevant fields are present.",
+      "explanation": "ECS normalization makes equivalent concepts consistent across data sources. It does not guarantee that a source provides every field or that every rule is applicable.",
+      "hints": [
+        "Think about what happens when two products describe the same kind of information with different field names.",
+        "Rules and dashboards can be more reusable when field names are consistent.",
+        "Choose the option that describes shared field expectations while still requiring the relevant data to exist."
+      ]
+    }
+  ],
+  "sources": [
+    {
+      "title": "Ingest data to Elastic Security",
+      "url": "https://www.elastic.co/docs/solutions/security/get-started/ingest-data-to-elastic-security"
+    },
+    {
+      "title": "Get started with Elastic Security SIEM: Detect and respond to threats",
+      "url": "https://www.elastic.co/docs/solutions/security/get-started/get-started-detect-with-siem"
+    },
+    {
+      "title": "Explore fields and data with Discover",
+      "url": "https://www.elastic.co/docs/explore-analyze/discover/discover-get-started"
+    },
+    {
+      "title": "Elastic Security ECS field reference",
+      "url": "https://www.elastic.co/docs/reference/security/fields-and-object-schemas/siem-field-reference"
+    },
+    {
+      "title": "ES|QL STATS command",
+      "url": "https://www.elastic.co/docs/reference/query-languages/esql/commands/stats-by"
+    }
+  ]
+}

@@ -1,0 +1,98 @@
+{
+  "id": "1.1",
+  "model": "openai/gpt-6-luna",
+  "title": "Elasticsearch essentials for security analysts",
+  "body": "A useful starting point is to think of a security event as a JSON document stored in Elasticsearch. Documents are grouped into indices, and mappings define how Elasticsearch understands the fields in those documents. For streams of timestamped events, a data stream can provide one stable name over multiple indices.\n\n## Four building blocks\n\n- **Document:** One JSON object containing fields and values. A login event might have a timestamp, user, source IP, and outcome. Elasticsearch also tracks metadata such as `_id` (the document’s unique ID) and `_index` (where it is stored).\n- **Index:** A named storage and search target for documents. You index documents into an index and search one or more indices. An index also has a mapping and settings; internally it is divided into shards.\n- **Data stream:** A named way to write to and search across multiple backing indices. It is designed for timestamped, mostly append-only data such as logs and security events. You can query the stream by its name rather than selecting each backing index yourself.\n- **Field mapping:** The definition of a field’s type and indexing behavior. For example, a mapping says whether `source.ip` is an IP address, `@timestamp` is a date, or `event.outcome` is a keyword. A mapping is not just a description: it affects which searches, filters, and aggregations make sense and are supported.\n\nThese are related but not interchangeable: a document is an individual event; an index stores documents; a data stream routes operations across its backing indices; and mappings define how fields in those documents are interpreted. See [Elasticsearch index fundamentals](https://www.elastic.co/docs/manage-data/data-store/index-basics).\n\n## Why field types matter\n\nSecurity events often contain values that look like ordinary strings but have different meanings. A username is a categorical identifier, an IP address is an address, and a timestamp represents time. Mapping each appropriately helps Elasticsearch use the right behavior when you filter, group, sort, or search.\n\nCommon choices include:\n\n| Example field | Typical mapping | Why it fits |\n| --- | --- | --- |\n| `user.name`, `event.outcome`, `host.name` | `keyword` | Structured values are commonly filtered or grouped as exact values. |\n| `source.ip` | `ip` | Represents an IPv4 or IPv6 address and supports address-aware queries, including CIDR ranges. |\n| `@timestamp` | `date` | Supports time-based queries and sorting. |\n| Human-readable text, such as an email body | `text` | Analyzed for full-text searches over words and phrases. |\n\nFor example, `event.outcome: \"failure\"` is a category to match exactly, not prose to search for words in. A `keyword` field is suited to exact matching and aggregations. A `text` field is analyzed into terms for full-text search and is not generally the right choice for sorting or grouping. If you need both full-text search and exact-value operations on one string, Elasticsearch supports mapping it as both `text` and `keyword` using a multi-field. See [Keyword type family](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/keyword) and [Text field type](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/text).\n\nSimilarly, mapping an IP as `ip` gives it address semantics rather than treating it as an arbitrary string; mapping a timestamp as `date` lets Elasticsearch interpret and query it as time. See [IP field type](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/ip) and [Date field type](https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/date).\n\nA field’s type can affect the operations available to you. For example, trying to aggregate or sort a `text` field is usually a sign that you should use a `keyword` field or its keyword multi-field instead. Choosing types deliberately is easier than correcting an unsuitable mapping later; changing an existing field’s type generally requires reindexing.\n\n## A small event index you can run\n\nThe following Dev Tools requests create a regular index with explicit mappings and add a few authentication events. The field mappings use the types discussed above. This is a plain index for a compact example; it is not a data stream.\n\n```http\nPUT auth-events\n{\n  \"mappings\": {\n    \"properties\": {\n      \"@timestamp\": { \"type\": \"date\" },\n      \"event\": {\n        \"properties\": {\n          \"category\": { \"type\": \"keyword\" },\n          \"action\": { \"type\": \"keyword\" },\n          \"outcome\": { \"type\": \"keyword\" }\n        }\n      },\n      \"user\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } },\n      \"source\": { \"properties\": { \"ip\": { \"type\": \"ip\" } } },\n      \"host\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } },\n      \"process\": {\n        \"properties\": {\n          \"name\": { \"type\": \"keyword\" },\n          \"parent\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } }\n        }\n      }\n    }\n  }\n}\n\nPOST auth-events/_bulk\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T09:00:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"analyst1\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"workstation-7\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T09:02:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"success\"},\"user\":{\"name\":\"analyst1\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"workstation-7\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T09:05:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"admin\"},\"source\":{\"ip\":\"198.51.100.8\"},\"host\":{\"name\":\"server-3\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n```\n\nYou can run this small ES|QL query against the index to see the values in the failed authentication events:\n\n```esql\nFROM auth-events\n| WHERE event.category == \"authentication\" AND event.outcome == \"failure\"\n| KEEP @timestamp, user.name, source.ip, host.name\n| SORT @timestamp\n```\n\nThe filters make use of mapped categorical fields, and the output keeps the timestamp and IP fields in their event context. This lesson uses only a small query to connect mappings to event data; query-writing techniques come later.\n\n## Why security events commonly use data streams\n\nSecurity events are typically generated continuously and include a timestamp. Analysts usually add new events far more often than they revise or delete old ones. That is a good fit for a data stream: Elasticsearch writes new documents to the stream’s current write index and searches across its backing indices. A data stream requires each document to contain `@timestamp`, mapped as `date` or `date_nanos`.\n\nAs data grows, rollover creates a new backing index for writes. Lifecycle management can help automate rollover and manage older backing indices, such as moving or deleting data according to retention needs. This lets you keep using one stream name without manually targeting each time-based index. Learn more in [Data streams in Elasticsearch](https://www.elastic.co/docs/manage-data/data-store/data-streams).\n\nA data stream is not the right default for every workload. It is designed for data that is **mostly** append-only, with occasional rather than frequent updates and deletes. If your workflow regularly overwrites documents with the same ID or frequently updates existing records, consider a regular index or an index alias with a write index instead.\n\n## Recap\n\nA document is one event; an index is a named store and search target; a data stream is a named abstraction over backing indices for timestamped, mostly append-only data; and a mapping tells Elasticsearch how to interpret each field. Use mappings that reflect field meaning—such as `keyword` for categories, `ip` for addresses, and `date` for timestamps—because those choices affect how you can search and analyze security data.",
+  "exercises": [
+    {
+      "kind": "multiple_choice",
+      "prompt": "Which statement correctly distinguishes a document, an index, a data stream, and a mapping?",
+      "setup_sql": "",
+      "solution_sql": "",
+      "choices": [
+        "A document is one JSON event; an index stores documents; a data stream provides a named way to write to and search across backing indices; a mapping defines field types and behavior.",
+        "A document is a backing index; an index is a field type; a data stream is one JSON event; a mapping is a search result.",
+        "A document is a field mapping; an index is a timestamp; a data stream is a single document; a mapping is a collection of shards.",
+        "A data stream and an index are always the same resource, and mappings apply only to documents returned by searches."
+      ],
+      "answer": "A document is one JSON event; an index stores documents; a data stream provides a named way to write to and search across backing indices; a mapping defines field types and behavior.",
+      "explanation": "Documents hold individual records, indices store and expose records for search, data streams abstract over backing indices, and mappings define how fields are interpreted.",
+      "hints": null
+    },
+    {
+      "kind": "multiple_choice",
+      "prompt": "Which mapping set best fits an authentication event where `@timestamp` is a time, `source.ip` is an IP address, and `event.outcome` is a categorical value such as `success` or `failure`?",
+      "setup_sql": "",
+      "solution_sql": "",
+      "choices": [
+        "`@timestamp` as `keyword`, `source.ip` as `keyword`, `event.outcome` as `text`",
+        "`@timestamp` as `date`, `source.ip` as `ip`, `event.outcome` as `keyword`",
+        "`@timestamp` as `text`, `source.ip` as `date`, `event.outcome` as `integer`",
+        "`@timestamp` as `ip`, `source.ip` as `date`, `event.outcome` as `keyword`"
+      ],
+      "answer": "`@timestamp` as `date`, `source.ip` as `ip`, `event.outcome` as `keyword`",
+      "explanation": "A date mapping supports time operations, an IP mapping gives an address address-aware behavior, and a keyword mapping suits exact categorical values and grouping.",
+      "hints": null
+    },
+    {
+      "kind": "query",
+      "prompt": "Count failed authentication events for each source IP. Return one row per IP with a `failures` count, sorted by source IP.",
+      "setup_sql": "PUT auth-events\n{\n  \"mappings\": {\n    \"properties\": {\n      \"@timestamp\": { \"type\": \"date\" },\n      \"event\": {\n        \"properties\": {\n          \"category\": { \"type\": \"keyword\" },\n          \"action\": { \"type\": \"keyword\" },\n          \"outcome\": { \"type\": \"keyword\" }\n        }\n      },\n      \"user\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } },\n      \"source\": { \"properties\": { \"ip\": { \"type\": \"ip\" } } },\n      \"host\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } },\n      \"process\": {\n        \"properties\": {\n          \"name\": { \"type\": \"keyword\" },\n          \"parent\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } }\n        }\n      }\n    }\n  }\n}\nPOST auth-events/_bulk?refresh=true\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T09:00:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"alice\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"ws-17\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T09:01:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"bob\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"ws-17\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T09:02:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"success\"},\"user\":{\"name\":\"alice\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"ws-17\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T09:03:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"svc\"},\"source\":{\"ip\":\"198.51.100.7\"},\"host\":{\"name\":\"jump-02\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n",
+      "solution_sql": "FROM auth-events\n| WHERE event.category == \"authentication\" AND event.outcome == \"failure\"\n| STATS failures = COUNT(*) BY source.ip\n| SORT source.ip ASC",
+      "choices": [],
+      "answer": "",
+      "explanation": "The mapping body is valid JSON with all nested objects closed, and the documents use valid IP addresses rather than placeholders. The filter keeps failed authentication events; grouping by `source.ip` counts them per address, and sorting returns the rows in source-IP order.",
+      "hints": [
+        "First narrow the events to authentication records whose outcome is a failure.",
+        "Then group the remaining rows by source IP and calculate a count for each group.",
+        "In ES|QL, use `STATS` with a named `COUNT(*)` aggregation and `BY source.ip`; add an ascending `SORT` on the IP field."
+      ]
+    },
+    {
+      "kind": "query",
+      "prompt": "For host `linux-01`, count failed authentication events per user. Return one row per user with a `failed_events` count, sorted by username.",
+      "setup_sql": "PUT auth-events\n{\n  \"mappings\": {\n    \"properties\": {\n      \"@timestamp\": { \"type\": \"date\" },\n      \"event\": {\n        \"properties\": {\n          \"category\": { \"type\": \"keyword\" },\n          \"action\": { \"type\": \"keyword\" },\n          \"outcome\": { \"type\": \"keyword\" }\n        }\n      },\n      \"user\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } },\n      \"source\": { \"properties\": { \"ip\": { \"type\": \"ip\" } } },\n      \"host\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } },\n      \"process\": {\n        \"properties\": {\n          \"name\": { \"type\": \"keyword\" },\n          \"parent\": { \"properties\": { \"name\": { \"type\": \"keyword\" } } }\n        }\n      }\n    }\n  }\n}\nPOST auth-events/_bulk\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T10:00:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"alice\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"linux-01\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T10:01:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"bob\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"linux-01\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T10:02:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"alice\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"linux-01\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T10:03:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"success\"},\"user\":{\"name\":\"alice\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"linux-01\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}\n{\"index\": {}}\n{\"@timestamp\":\"2025-02-01T10:04:00Z\",\"event\":{\"category\":\"authentication\",\"action\":\"ssh_login\",\"outcome\":\"failure\"},\"user\":{\"name\":\"svc\"},\"source\":{\"ip\":\"192.0.2.10\"},\"host\":{\"name\":\"linux-02\"},\"process\":{\"name\":\"sshd\",\"parent\":{\"name\":\"systemd\"}}}",
+      "solution_sql": "FROM auth-events\n| WHERE event.category == \"authentication\" AND event.outcome == \"failure\" AND host.name == \"linux-01\"\n| STATS failed_events = COUNT(*) BY user.name\n| SORT user.name",
+      "choices": [],
+      "answer": "",
+      "explanation": "The setup body now has balanced JSON braces, and the mapped IP field is populated with valid IP addresses. The query filters to authentication failures on `linux-01` before aggregating by user, then sorts the results by username. ES|QL uses this pipe-based sequence of operations: https://www.elastic.co/docs/reference/query-languages/esql",
+      "hints": null
+    },
+    {
+      "kind": "short_answer",
+      "prompt": "Why are data streams commonly used for security events, and give one example of a workload that may be a poor fit.",
+      "setup_sql": "",
+      "solution_sql": "",
+      "choices": [],
+      "answer": "Security events are timestamped and continuously generated, and are usually appended rather than frequently updated or deleted. A data stream provides one name over backing indices, routes new events to the write index, and supports rollover and lifecycle management. A workload that frequently overwrites documents with the same ID or regularly updates existing records may fit a regular index or an index alias with a write index better.",
+      "explanation": "Data streams are intended for timestamped, mostly append-only data. Frequent updates and last-write-wins behavior are reasons to consider another storage pattern.",
+      "hints": null
+    }
+  ],
+  "sources": [
+    {
+      "title": "Elasticsearch index fundamentals",
+      "url": "https://www.elastic.co/docs/manage-data/data-store/index-basics"
+    },
+    {
+      "title": "Data streams in Elasticsearch",
+      "url": "https://www.elastic.co/docs/manage-data/data-store/data-streams"
+    },
+    {
+      "title": "Keyword type family",
+      "url": "https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/keyword"
+    },
+    {
+      "title": "Text field type",
+      "url": "https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/text"
+    },
+    {
+      "title": "IP field type",
+      "url": "https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/ip"
+    },
+    {
+      "title": "Date field type",
+      "url": "https://www.elastic.co/docs/reference/elasticsearch/mapping-reference/date"
+    }
+  ]
+}

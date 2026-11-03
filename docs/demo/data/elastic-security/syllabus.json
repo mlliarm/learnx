@@ -1,0 +1,227 @@
+{
+  "pack": "elastic-security",
+  "model": "openai/gpt-6-luna",
+  "profile": {
+    "level": "beginner",
+    "goal": "detect and hunt threats with Elastic Security: write ES|QL hunting queries, understand and tune detection rules (EQL, KQL, threshold, ES|QL rules) and investigate alerts",
+    "background": "comfortable with SQL and Linux; new to Elasticsearch"
+  },
+  "title": "Threat Hunting and Detection Engineering with Elastic Security",
+  "summary": "By the end, the learner will be able to explore security data in Elasticsearch, write and refine ES|QL threat hunts, and choose, create, and tune Elastic Security detection rules using KQL, EQL, threshold logic, and ES|QL. They will also be able to triage an alert, pivot into related events, and check that rules are producing reliable results.",
+  "modules": [
+    {
+      "id": "1",
+      "title": "Build a mental model of Elastic Security data",
+      "summary": "Learn the Elasticsearch concepts needed to understand where security events live, how their fields affect queries, and how to confirm data is available before hunting.",
+      "lessons": [
+        {
+          "id": "1.1",
+          "title": "Elasticsearch essentials for security analysts",
+          "objectives": [
+            "Explain the difference between an Elasticsearch document, an index, a data stream, and a field mapping.",
+            "Identify why a field’s mapped type matters when filtering, grouping, or searching its values.",
+            "Describe why timestamped, mostly append-only security events are commonly stored in data streams."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/manage-data/data-store/index-basics",
+            "https://www.elastic.co/docs/manage-data/data-store/data-streams"
+          ]
+        },
+        {
+          "id": "1.2",
+          "title": "Check your security data in Discover",
+          "objectives": [
+            "Verify that a chosen security data source contains events in the selected time range.",
+            "Inspect an event and identify useful fields such as @timestamp, event.category, event.type, host.name, and user.name.",
+            "Explain how integrations and ECS field normalization help security rules work across data sources."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/get-started/ingest-data-to-elastic-security",
+            "https://www.elastic.co/docs/solutions/security/get-started/get-started-detect-with-siem",
+            "https://www.elastic.co/docs/explore-analyze/discover/discover-get-started"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "2",
+      "title": "Hunt with ES|QL",
+      "summary": "Use Discover and Elastic Security’s investigation workspace to move from a question about activity to filtered, grouped, and contextualized hunt results.",
+      "lessons": [
+        {
+          "id": "2.1",
+          "title": "ES|QL query fundamentals in Discover",
+          "objectives": [
+            "Run an ES|QL query using FROM and identify the data source it searches.",
+            "Use WHERE, KEEP, SORT, and LIMIT to filter and shape event results.",
+            "Use STATS with BY to count events by a security-relevant field, and explain how pipe order affects results.",
+            "Contrast ES|QL’s pipe-based processing with the learner’s existing SQL experience."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/explore-analyze/discover/try-esql",
+            "https://www.elastic.co/docs/explore-analyze/query-filter/languages/esql-kibana"
+          ]
+        },
+        {
+          "id": "2.2",
+          "title": "Turn a threat hypothesis into an ES|QL hunt",
+          "objectives": [
+            "Write and run a query that filters process or authentication events using relevant fields and values.",
+            "Use STATS, COUNT_DISTINCT, or time bucketing to assess event volume, spread, or timing.",
+            "Refine a hunt by inspecting its returned fields and adjusting the query when results do not support the hypothesis."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/esql-for-security/esql-threat-hunting-tutorial",
+            "https://www.elastic.co/docs/solutions/security/esql-for-security"
+          ]
+        },
+        {
+          "id": "2.3",
+          "title": "Enrich and correlate a hunt in Timeline",
+          "objectives": [
+            "Use LOOKUP JOIN in a hunt to add context from a lookup index.",
+            "Build a chronological view of relevant events across multiple data sources.",
+            "Open Timeline and use its ES|QL workflow to investigate related security events."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/esql-for-security/esql-threat-hunting-tutorial",
+            "https://www.elastic.co/docs/solutions/security/investigate/timeline",
+            "https://www.elastic.co/docs/solutions/security/investigate"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "3",
+      "title": "Select and write event-based detection rules",
+      "summary": "Learn how Elastic Security detections turn matching source events into alerts, then practice two different kinds of event logic: a KQL field match and an EQL event sequence.",
+      "lessons": [
+        {
+          "id": "3.1",
+          "title": "Detection rules, alerts, and choosing a rule type",
+          "objectives": [
+            "Describe how a detection rule evaluates source events and produces alerts.",
+            "Choose between a custom query, EQL, threshold, and ES|QL rule for a set of example detection goals.",
+            "Explain why Elastic Security detection rules are distinct from Kibana Universal Alerting rules.",
+            "Identify the key schedule, severity, risk score, and alert-volume settings shared by detection rules."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/choose-the-right-rule-type",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/install-prebuilt-rules",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/common-rule-settings",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/using-the-rule-ui"
+          ]
+        },
+        {
+          "id": "3.2",
+          "title": "Write a KQL custom query rule",
+          "objectives": [
+            "Write a KQL query using field-value conditions, Boolean operators, and parentheses.",
+            "Use a wildcard or field-existence condition in a query, and identify when a leading wildcard may be costly.",
+            "Create or preview a custom query rule and verify that its data source and query match the intended event pattern.",
+            "Explain why a KQL custom query is suitable for a single-event match but not for aggregation or event ordering."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/custom-query",
+            "https://www.elastic.co/docs/reference/query-languages/kql",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/using-the-rule-ui"
+          ]
+        },
+        {
+          "id": "3.3",
+          "title": "Detect event sequences with EQL",
+          "objectives": [
+            "Write an EQL sequence with ordered event categories and a shared field that links the events.",
+            "Identify the timestamp and event-category fields an EQL rule expects, and explain the purpose of a tiebreaker field.",
+            "Choose EQL rather than KQL when the detection depends on event order or a missing event.",
+            "Use Timeline’s Correlation tab to inspect EQL sequence results."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/eql",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/choose-the-right-rule-type",
+            "https://www.elastic.co/docs/solutions/security/investigate/timeline"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "4",
+      "title": "Detect volume patterns and computed conditions",
+      "summary": "Build detections for event counts and derived results, learning when a threshold rule is simpler and when an ES|QL detection pipeline is needed.",
+      "lessons": [
+        {
+          "id": "4.1",
+          "title": "Build a threshold rule for repeated activity",
+          "objectives": [
+            "Configure a threshold rule that counts matching events and groups them by one or more fields.",
+            "Explain how the threshold and group-by fields affect which event groups generate alerts.",
+            "Describe how a cardinality constraint can distinguish broad activity, such as many unique destination ports, from repeated events against one value.",
+            "Select a threshold rule when the detection depends on an event count rather than a single match or ordered sequence."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/threshold",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/choose-the-right-rule-type",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/common-rule-settings"
+          ]
+        },
+        {
+          "id": "4.2",
+          "title": "Create an ES|QL detection rule",
+          "objectives": [
+            "Create an Elastic Security ES|QL rule from a query that filters, transforms, or aggregates source events.",
+            "Explain how query result rows become alerts, including the difference between aggregating and non-aggregating queries.",
+            "Describe the role of _id metadata in deduplicating non-aggregating ES|QL rule results and identify the version-specific behavior documented by Elastic.",
+            "Choose ES|QL when computed fields or pipeline aggregation are required, rather than using a KQL or EQL rule."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/esql",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/using-the-rule-ui",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/common-rule-settings",
+            "https://www.elastic.co/docs/solutions/security/esql-for-security/esql-threat-hunting-tutorial"
+          ]
+        }
+      ]
+    },
+    {
+      "id": "5",
+      "title": "Investigate alerts, tune, and verify",
+      "summary": "Complete the workflow by examining alert context, reducing noise with the appropriate mechanism, and checking that detections run as intended.",
+      "lessons": [
+        {
+          "id": "5.1",
+          "title": "Triage an alert and investigate related activity",
+          "objectives": [
+            "Use an alert’s rule description, alert reason, highlighted fields, severity, host, and user to summarize what triggered it.",
+            "Pivot from an alert into Timeline and query related events with KQL, EQL, or ES|QL.",
+            "Use the process analyzer or Session View, when available for the alert, to examine surrounding process activity.",
+            "Record an investigation note or attach relevant work to a case."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/view-detection-alert-details",
+            "https://www.elastic.co/docs/solutions/security/investigate/timeline",
+            "https://www.elastic.co/docs/solutions/security/investigate"
+          ]
+        },
+        {
+          "id": "5.2",
+          "title": "Tune detections and monitor rule health",
+          "objectives": [
+            "Choose whether to narrow rule logic, add an exception, suppress repeated alerts, or snooze actions for a given noise scenario.",
+            "Apply a tuning change while explaining how it preserves or changes the detection’s coverage.",
+            "Preview or manually run a rule against data, then check its execution status and results.",
+            "Distinguish a successful execution from a rule that actually generated alerts."
+          ],
+          "doc_urls": [
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/reduce-noise-and-false-positives",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/tune-detection-rules",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/alert-suppression",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/common-rule-settings",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/manage-detection-rules",
+            "https://www.elastic.co/docs/solutions/security/detect-and-alert/monitor-rule-executions"
+          ]
+        }
+      ]
+    }
+  ]
+}
