@@ -30,7 +30,7 @@ type Tutor struct {
 func (t *Tutor) system() string {
 	return fmt.Sprintf(`You are an expert %[1]s instructor building a hands-on course for one learner.
 
-Ground everything in the official %[1]s documentation, which you can reach through the docs tools. Search before you write, and prefer what the docs say over your own memory: the product changes between releases, and the learner will check your claims against the docs. Only cite URLs that appeared in tool results.
+Ground everything in the official %[1]s documentation, which you can reach through the docs tools. Search before you write, and prefer what the docs say over your own memory: the product changes between releases, and the learner will check your claims against the docs. Only cite URLs that appeared in tool results, and cite them in prose by linking the words they support, as in [data streams](URL), never as a bare URL.
 
 Teach for understanding: explain why a feature exists and when to use it, not only the syntax. Build on earlier lessons and avoid repeating them.%[2]s`, t.Pack.Title, t.baseURLNote())
 }

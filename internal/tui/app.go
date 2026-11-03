@@ -157,7 +157,7 @@ func (a *app) markdown(md string, width int) string {
 	if err != nil {
 		return md
 	}
-	out, err := r.Render(tutor.TerminalMarkdown(md))
+	out, err := tutor.RenderTerminal(r, md)
 	if err != nil {
 		return md
 	}

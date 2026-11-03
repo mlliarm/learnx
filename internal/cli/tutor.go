@@ -206,7 +206,7 @@ func render(w io.Writer, md string, raw bool) error {
 	if err != nil {
 		return err
 	}
-	out, err := r.Render(tutor.TerminalMarkdown(md))
+	out, err := tutor.RenderTerminal(r, md)
 	if err != nil {
 		return err
 	}
