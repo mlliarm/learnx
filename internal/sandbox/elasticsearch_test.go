@@ -3,9 +3,11 @@ package sandbox
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -129,11 +131,41 @@ type fakeES struct {
 	deleteErr bool   // refuse wildcard deletes
 	vanished  string // an index template that is listed but already deleted
 	requests  []string
+
+	mu   sync.Mutex
+	lock string // the lock document's _source, "" if none
+	seq  int    // the lock document's _seq_no
 }
 
 func (f *fakeES) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.requests = append(f.requests, r.Method+" "+r.URL.Path)
 	switch {
+	case r.URL.Path == "/"+sandboxMarker+"/_create/lock":
+		if f.lock != "" {
+			w.WriteHeader(http.StatusConflict)
+			fmt.Fprint(w, `{"error":{"type":"version_conflict_engine_exception","reason":"document already exists"}}`)
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		f.lock, f.seq = string(body), f.seq+1
+		w.WriteHeader(http.StatusCreated)
+		fmt.Fprintf(w, `{"_seq_no":%d,"_primary_term":1}`, f.seq)
+	case r.URL.Path == "/"+sandboxMarker+"/_doc/lock" && r.Method == http.MethodGet:
+		if f.lock == "" {
+			w.WriteHeader(http.StatusNotFound)
+			fmt.Fprint(w, `{"found":false}`)
+			return
+		}
+		fmt.Fprintf(w, `{"found":true,"_seq_no":%d,"_primary_term":1,"_source":%s}`, f.seq, f.lock)
+	case r.URL.Path == "/"+sandboxMarker+"/_doc/lock" && r.Method == http.MethodDelete:
+		if f.lock == "" || r.URL.Query().Get("if_seq_no") != fmt.Sprint(f.seq) {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		f.lock = ""
+		fmt.Fprint(w, `{"result":"deleted"}`)
 	case r.URL.Path == "/_cluster/health":
 		fmt.Fprint(w, `{"status":"green"}`)
 	case r.URL.Path == "/_cluster/settings":
@@ -270,5 +302,148 @@ func TestResetToleratesVanishedObjects(t *testing.T) {
 	f.vanished = "exercise"
 	if _, err := es.Run(context.Background(), "", "ROW a = 1"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func (f *fakeES) lockHeld() bool {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.lock != ""
+}
+
+// Two learnx processes sharing a cluster take turns: a run waits while
+// another holds the lock, and the lock is gone once both are done.
+func TestRunsTakeTurnsAcrossProcesses(t *testing.T) {
+	f := &fakeES{settings: wildcardDeletesAllowed, marked: true}
+	a, b := externalES(t, f), externalES(t, f) // separate in-process mutexes
+	ctx := context.Background()
+	release, err := a.lock(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error)
+	go func() {
+		_, err := b.Run(ctx, "", "ROW a = 1")
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		t.Fatalf("run finished while another process held the lock: %v", err)
+	case <-time.After(400 * time.Millisecond):
+	}
+	release()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if f.lockHeld() {
+		t.Error("lock left behind")
+	}
+}
+
+func TestStaleLockIsTakenOver(t *testing.T) {
+	old := time.Now().Add(-2 * lockTTL).UTC().Format(time.RFC3339Nano)
+	f := &fakeES{settings: wildcardDeletesAllowed, marked: true, lock: `{"owner":"dead","at":"` + old + `"}`, seq: 7}
+	es := externalES(t, f)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if _, err := es.Run(ctx, "", "ROW a = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if f.lockHeld() {
+		t.Error("lock left behind")
+	}
+}
+
+func TestFreshLockIsNotTakenOver(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	f := &fakeES{settings: wildcardDeletesAllowed, marked: true, lock: `{"owner":"alive","at":"` + now + `"}`}
+	es := externalES(t, f)
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	if _, err := es.Run(ctx, "", "ROW a = 1"); err != context.DeadlineExceeded {
+		t.Fatalf("err = %v, want a timeout while waiting", err)
+	}
+	if !f.lockHeld() {
+		t.Error("a live process's lock was broken")
+	}
+}
+
+// An owner whose stale lock was taken over must not release the new one.
+func TestReleaseSparesATakenOverLock(t *testing.T) {
+	f := &fakeES{settings: wildcardDeletesAllowed, marked: true}
+	es := externalES(t, f)
+	release, err := es.lock(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.mu.Lock()
+	f.lock, f.seq = `{"owner":"next","at":"2026-01-01T00:00:00Z"}`, f.seq+1 // taken over
+	f.mu.Unlock()
+	release()
+	if !f.lockHeld() {
+		t.Error("old owner released the new owner's lock")
+	}
+}
+
+// Two learnx processes (here: two sandboxes, each with its own in-process
+// mutex) on one real cluster must not wipe each other's data mid-run. One
+// runs exercises while the other keeps resetting the cluster with trivial
+// runs: identical workloads would move in lockstep and hide the race.
+// Skipped with -short.
+func TestConcurrentProcessesLive(t *testing.T) {
+	if testing.Short() {
+		t.Skip("starts Elasticsearch")
+	}
+	p, err := pack.Load("elasticsearch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	learner, err := Open(p, nil)
+	if err != nil {
+		t.Skip(err)
+	}
+	other, err := Open(p, nil)
+	if err != nil {
+		t.Skip(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	stop := make(chan struct{})
+	otherErr := make(chan error, 1)
+	go func() {
+		for {
+			select {
+			case <-stop:
+				otherErr <- nil
+				return
+			default:
+			}
+			if _, err := other.Run(ctx, "", "ROW a = 1"); err != nil {
+				otherErr <- err
+				return
+			}
+		}
+	}()
+
+	// n is mapped as keyword: if a reset deletes the index after PUT, _bulk
+	// recreates it with n as a number and LIKE fails, so a reset anywhere
+	// after PUT is caught, not only one between _bulk and the query.
+	setup := "PUT exercise\n{\"mappings\": {\"properties\": {\"n\": {\"type\": \"keyword\"}}}}\n\n" +
+		"POST exercise/_bulk\n{\"index\": {}}\n{\"n\": 1}\n{\"index\": {}}\n{\"n\": 2}"
+	for i := 0; i < 15; i++ {
+		res, err := learner.Run(ctx, setup, `FROM exercise | WHERE n LIKE "*" | STATS c = COUNT(*)`)
+		if err != nil {
+			t.Errorf("run %d: %v", i+1, err)
+			break
+		}
+		if fmt.Sprint(res.Rows) != "[[2]]" {
+			t.Errorf("run %d: rows = %v", i+1, res.Rows)
+			break
+		}
+	}
+	close(stop)
+	if err := <-otherErr; err != nil {
+		t.Errorf("other process: %v", err)
 	}
 }

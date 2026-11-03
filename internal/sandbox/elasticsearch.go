@@ -74,6 +74,11 @@ func (es *Elasticsearch) Run(ctx context.Context, setup, query string) (*Result,
 	if err := es.start(ctx); err != nil {
 		return nil, err
 	}
+	release, err := es.lock(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	if err := es.reset(ctx); err != nil {
 		return nil, fmt.Errorf("reset the sandbox: %w", err)
 	}
@@ -157,6 +162,86 @@ func (es *Elasticsearch) start(ctx context.Context) error {
 		es.baseline[n] = true
 	}
 	return nil
+}
+
+// lockTTL bounds how long a run may hold the cluster lock; an older lock is
+// taken to belong to a learnx that died, and is taken over.
+const lockTTL = 3 * time.Minute
+
+const lockDoc = "/" + sandboxMarker + "/_doc/lock"
+
+// lock takes the cluster-wide lock that keeps learnx processes sharing a
+// cluster from wiping each other's exercise data mid-run. It is a document
+// in the marker index, which only one process can create. Release deletes
+// it only if it is still the same document, so a lock taken over as stale
+// is never released by its old owner.
+func (es *Elasticsearch) lock(ctx context.Context) (release func(), err error) {
+	body, _ := json.Marshal(map[string]string{"owner": es.Name(), "at": time.Now().UTC().Format(time.RFC3339Nano)})
+	waiting := false
+	for {
+		status, raw, err := es.send(ctx, http.MethodPut, "/"+sandboxMarker+"/_create/lock", "application/json", body)
+		if err != nil {
+			return nil, fmt.Errorf("lock the sandbox: %v", err)
+		}
+		switch {
+		case status == http.StatusCreated:
+			var doc struct {
+				SeqNo       int64 `json:"_seq_no"`
+				PrimaryTerm int64 `json:"_primary_term"`
+			}
+			if err := json.Unmarshal(raw, &doc); err != nil {
+				return nil, fmt.Errorf("lock the sandbox: %w", err)
+			}
+			return func() {
+				// A fresh context: the run's may already be cancelled.
+				ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+				defer cancel()
+				es.send(ctx, http.MethodDelete, fmt.Sprintf("%s?if_seq_no=%d&if_primary_term=%d", lockDoc, doc.SeqNo, doc.PrimaryTerm), "", nil)
+			}, nil
+		case status != http.StatusConflict:
+			return nil, fmt.Errorf("lock the sandbox: HTTP %d: %s", status, esReason(raw))
+		}
+		if err := es.breakStaleLock(ctx); err != nil {
+			return nil, err
+		}
+		if !waiting {
+			es.logf("· waiting for another learnx using the sandbox…")
+			waiting = true
+		}
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
+}
+
+// breakStaleLock deletes the lock if it is older than lockTTL.
+func (es *Elasticsearch) breakStaleLock(ctx context.Context) error {
+	status, raw, err := es.send(ctx, http.MethodGet, lockDoc, "", nil)
+	if err != nil {
+		return fmt.Errorf("read the sandbox lock: %v", err)
+	}
+	if status == http.StatusNotFound {
+		return nil // just released
+	}
+	var doc struct {
+		SeqNo       int64 `json:"_seq_no"`
+		PrimaryTerm int64 `json:"_primary_term"`
+		Source      struct {
+			At time.Time `json:"at"`
+		} `json:"_source"`
+	}
+	if status != http.StatusOK || json.Unmarshal(raw, &doc) != nil {
+		return fmt.Errorf("read the sandbox lock: HTTP %d: %s", status, esReason(raw))
+	}
+	if time.Since(doc.Source.At) < lockTTL {
+		return nil
+	}
+	es.logf("· taking over a sandbox lock left since %s", doc.Source.At.Local().Format(time.TimeOnly))
+	// Conditional, so that only one waiter breaks it.
+	_, _, err = es.send(ctx, http.MethodDelete, fmt.Sprintf("%s?if_seq_no=%d&if_primary_term=%d", lockDoc, doc.SeqNo, doc.PrimaryTerm), "", nil)
+	return err
 }
 
 // claim makes sure the cluster can be wiped before every run, then marks it
@@ -282,7 +367,8 @@ func (es *Elasticsearch) container(ctx context.Context) (string, error) {
 			"-e", "action.destructive_requires_name=false",
 			"-e", "ES_JAVA_OPTS=-Xms512m -Xmx512m",
 			es.image).CombinedOutput()
-		if err != nil {
+		// Another learnx starting it at the same moment is fine.
+		if err != nil && !strings.Contains(string(out), "is already in use") {
 			return "", fmt.Errorf("docker run %s: %v: %s", es.image, err, out)
 		}
 	}
